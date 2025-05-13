@@ -2,11 +2,19 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Rive – scroll-driven View-Model demo</title>
+  <title>Rive – scroll/touch-driven View-Model demo</title>
 
   <style>
     html, body { height: 100%; margin: 0; overflow: hidden; font-family: sans-serif; }
-    #rive-canvas { position: absolute; inset: 0; width: 100%; height: 100%; background:#252525; }
+    #rive-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      background: #252525;
+      /* Prevent the page itself scrolling while we drag on mobile */
+      touch-action: none;
+    }
   </style>
 
   <!-- WebGL2 runtime (data-binding capable) -->
@@ -17,21 +25,24 @@
 
   <script>
     /* ------------------------------------------------------------------ 0 · Config */
-    
-    const RIV_PATH      = "scroll_v20.riv";  /* your file */
+    const RIV_PATH      = "scroll_v20.riv"; /* your .riv file */
     const ARTBOARD_NAME = "main";
-    const SCROLL_PROP   = "nm";              /* number in the View-Model */
-    const HEIGHT_PROP   = "wH";              /* NEW – window height input */
-    const MIN           = 0,  MAX = 100;
+    const SCROLL_PROP   = "nm";             /* number in the View-Model */
+    const HEIGHT_PROP   = "wH";             /* window-height input */
+    const MIN           = 0, MAX = 100;
     const EASE          = 0.8;
-    
+
+    /* Separate sensitivities for touch and wheel */
+    const DRAG_SENSITIVITY   = 0.07; /* touch/pen: higher = stronger, lower = softer */
+    const WHEEL_SENSITIVITY  = 0.07; /* mouse wheel/track-pad */
+
     /* ------------------------------------------------------------------ 1 · Layout */
     const layout = new rive.Layout({ fit: rive.Fit.Layout, alignment: rive.Alignment.Center });
-    
+
     /* ------------------------------------------------------------------ 2 · Rive instance */
     let scrollProp = null;
     let heightProp = null;
-    
+
     const riveInstance = new rive.Rive({
       src: RIV_PATH,
       artboard: ARTBOARD_NAME,
@@ -44,50 +55,70 @@
         const v = riveInstance.viewModelInstance;
         scrollProp = v.number(SCROLL_PROP);
         heightProp = v.number(HEIGHT_PROP);
-    
+
         riveInstance.resizeDrawingSurfaceToCanvas();
-        riveInstance.startRendering();       // draw first frame
+        riveInstance.startRendering(); /* draw first frame */
       }
     });
-    
-    /* ------------------------------------------------------------------ 3 · Indirect scroll */
+
+    /* ------------------------------------------------------------------ 3 · Indirect scroll (wheel + touch/pointer) */
     let target = 0, current = 0;
-    
+
+    /* 3a · mouse wheel */
     window.addEventListener("wheel", e => {
-      target = Math.min(MAX, Math.max(MIN, target + e.deltaY * 0.05));
+      target = Math.min(MAX, Math.max(MIN, target + e.deltaY * WHEEL_SENSITIVITY));
     }, { passive: true });
-    
-    function animate () {
-      /* — Scroll-driven input — */
+
+    /* 3b · pointer events for touch/pen/mouse drag */
+    let dragging = false, lastY = 0;
+
+    function onPointerDown(e) {
+      dragging = true;
+      lastY = e.clientY;
+    }
+
+    function onPointerMove(e) {
+      if (!dragging) return;
+      const dy = e.clientY - lastY; /* positive if we move down */
+      target = Math.min(MAX, Math.max(MIN, target + dy * -DRAG_SENSITIVITY));
+      lastY = e.clientY;
+    }
+
+    function onPointerUp() { dragging = false; }
+
+    window.addEventListener("pointerdown",  onPointerDown,  { passive: true });
+    window.addEventListener("pointermove",  onPointerMove,  { passive: true });
+    window.addEventListener("pointerup",    onPointerUp,    { passive: true });
+    window.addEventListener("pointercancel",onPointerUp,    { passive: true });
+
+    /* 3c · main animation loop */
+    function animate() {
+      /* ease towards the target */
       current += (target - current) * EASE;
       if (Math.abs(target - current) < 0.001) current = target;
-    
-      if (scrollProp) scrollProp.value = current;
-    
-      /* — NEW: window-height input — */
-      if (heightProp) heightProp.value = window.innerHeight;
-    
-      /* Trigger a render whenever we’ve changed something */
+
+      if (scrollProp)  scrollProp.value = current;
+      if (heightProp)  heightProp.value = window.innerHeight;
+
+      /* trigger a render whenever we’ve changed something */
       if (scrollProp || heightProp) riveInstance.startRendering();
-    
       requestAnimationFrame(animate);
     }
     animate();
-    
-    /* ------------------------------------------------------------------ 4 · Resize helper (unchanged) */
+
+    /* ------------------------------------------------------------------ 4 · Resize helper */
     let timerId = null;
     function scheduleResize() {
       if (document.hidden) return;
       clearTimeout(timerId);
       timerId = setTimeout(() => {
         riveInstance.resizeDrawingSurfaceToCanvas();
-        /* NEW: update wH immediately after a resize event */
         if (heightProp) heightProp.value = window.innerHeight;
       }, 1);
     }
     window.addEventListener("resize", scheduleResize);
-    window.matchMedia(`(resolution:${window.devicePixelRatio}dppx)`).addEventListener("change", scheduleResize);
-    </script>
-    
+    window.matchMedia(`(resolution:${window.devicePixelRatio}dppx)`)
+          .addEventListener("change", scheduleResize);
+  </script>
 </body>
 </html>
